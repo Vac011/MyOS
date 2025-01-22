@@ -1,9 +1,12 @@
 ; MyOS一级引导程序
 
-AddrOfBoot     equ    0x7c00  ; boot将被BIOS加载到07c00
-AddrOfTemp     equ    0x8000  ; 临时缓冲区地址, 用于存储读取到的根目录、FAT表
-BaseOfLoader   equ    0x1000  ; loader加载地址基址(实际地址乘以16)
-OffsetOfLoader equ    0x0000  ; loader加载地址偏移
+BaseOfBoot       equ  0       ; 一级引导程序加载地址基址(实际地址乘以16)
+OffsetOfBoot     equ  0x7c00  ; boot将被BIOS加载到07c00
+BaseOfTemp       equ  0       ; 临时缓冲区段基址, 用于存储读取到的根目录、FAT表
+OffsetOfTempRoot equ  0x7e00  ; 临时缓冲区根目录偏移地址
+OffsetOfTempFAT  equ  0x8000  ; 临时缓冲区FAT表偏移地址
+BaseOfLoader     equ  0x1000  ; loader加载地址基址(实际地址乘以16)
+OffsetOfLoader   equ  0       ; loader加载地址偏移
 
 FAT1SecStart equ 1            ; FAT表1起始扇区号(LBA, Logical Block Address，逻辑块地址格式, 从0开始, 而中断int 13h只能接受CHS格式, 从1开始)
 FAT1SecNum equ 9              ; FAT表1扇区数
@@ -41,20 +44,21 @@ Start:
     ; 段寄存器不能直接赋值，需要通过通用寄存器间接赋值
     mov ax, 0
     mov ds, ax
-    mov es, ax
     mov ss, ax
-    mov sp, AddrOfBoot
+    mov sp, 0x7c00
 
     ; 清屏
-    mov ax, 0600h 
-    mov bx, 0700h
+    mov ax, 0x0600
+    mov bx, 0x0700
     mov cx, 0
-    mov dx, 0184fh
-    int 10h
+    mov dx, 0x0184f
+    int 0x10
 
     ; 显示字符串
     mov si, 0           ; 信息类型
     mov bp, BootMsg     ; 字符串地址
+    mov ax, BaseOfBoot  ; 段地址
+    mov es, ax
     call Func_ShowMsg   ; 调用显示信息函数
 
     ; 搜索loader.bin文件
@@ -63,8 +67,10 @@ LoadRootDirSec:
     ; 第一层循环, 读取根目录扇区
     cmp dx, RootDirSecNum   ; 与总根目录扇区数比较
     je FileNotFound         ; 如果已搜索完所有根目录扇区说明不存在
-    mov bx, AddrOfTemp      ; 传递缓冲区的偏移地址
-    mov ax, RootDirSecStart     ; 传递读取扇区号
+    mov ax, BaseOfTemp
+    mov es, ax              ; 传递缓冲区段地址
+    mov bx, OffsetOfTempRoot; 传递缓冲区根目录的偏移地址
+    mov ax, RootDirSecStart ; 传递读取扇区号
     add ax, dx              ; 计算当前根目录扇区号
     inc dx                  ; 已搜索的根目录扇区数加1
     call Func_ReadOneSec    ; 调用读取扇区函数
@@ -73,8 +79,8 @@ SearchRootDirSec:
     ; 第二层循环, 在根目录扇区中搜索目录项
     cmp bx, [BPB_BytesPerSec]; 如果已读取的目录项数大小(B)等于扇区大小(512B)则说明该扇区已读取完毕
     je LoadRootDirSec        ; 则继续读取下一个扇区, 否则继续在当前扇区中搜索文件名
-    mov si, FileName         ; 待比较文件名偏移地址
-    mov di, AddrOfTemp       ; 待比较根目录开始地址
+    mov si, LoaderName       ; 待比较文件名偏移地址
+    mov di, OffsetOfTempRoot ; 待比较根目录开始地址
     add di, bx               ; 计算当前根目录项偏移地址
     dec di                   ; 避免下面的CmpFileName中inc di第一次多加一个1
     add bx, RootDirEntSize   ; 每次增加目录项大小32字节
@@ -94,13 +100,17 @@ CmpFileName:
 FileNotFound:
     mov si, 1
     mov bp, FileNotFoundMsg
+    mov ax, BaseOfBoot
+    mov es, ax
     call Func_ShowMsg
 
 FileFound:
-    and di, 0xffe0           ; 获取当前目录项的起始地址
+    and di, 0xffe0           ; 获取文件目录项的起始地址
     add di, 0x1a             ; 加上文件起始簇号字段的偏移地址
+    mov ax, BaseOfTemp
+    mov es, ax
     mov si, [es:di]          ; 获取文件的起始簇号(2B)
-    mov bx, AddrOfTemp       ; 传递缓冲区的偏移地址
+    mov bx, OffsetOfTempFAT  ; 传递缓冲区FAT表的偏移地址
     mov ax, FAT1SecStart     ; 传递FAT表1起始扇区号
     mov cx, 0                ; 记录已读取的FAT扇区数
 LoadFAT:
@@ -111,30 +121,34 @@ LoadFAT:
     add bx, [BPB_BytesPerSec]; 缓冲区偏移地址加上扇区大小(512B)
     cmp cx, FAT1SecNum       ; 与总FAT扇区数比较
     jne LoadFAT              ; 如果未读取完所有FAT扇区则继续读取
+    mov bx, OffsetOfLoader   ; 传递Loader加载地址偏移地址
 LoadFile:
     ; 根据簇号加载文件
+    and si, 0xfff            ; 只取低12位, 即簇号(1.5B)
     cmp si, 0xff8            ; 如果簇号大于等于0xff8则是当前最后一个簇
     jae Loader               ; 则跳转到Loader
     mov ax, BaseOfLoader
     mov es, ax               ; 传递Loader加载地址段地址
-    mov bx, OffsetOfLoader   ; 传递Loader加载地址偏移地址
     mov ax, DataClusSecStart ; 数据区起始扇区号
-    sub ax, 2                ; 减去前两个FAT保留项, 即实际数据区起始簇是从第3个簇开始          
+    sub ax, 2                ; 减去前两个FAT保留项, 即实际数据区起始簇是从第3个簇(2号)开始          
     add ax, si               ; 传递实际扇区号
     call Func_ReadOneSec
+    add bx, [BPB_BytesPerSec]; 缓冲区偏移地址加上扇区大小(512B)
     ; 获取下一个簇号值
     mov ax, si               
     and si, 1                ; 保存簇号的奇偶性
     shr ax, 1                ; 除以2后剩下的就是表项偏移
-    mov bx, 3                ; 乘以3字节/2簇
-    mul bx                   ; 默认操作数是ax
-    mov di, AddrOfTemp       ; 获取FAT表起始地址
+    mov cx, 3                ; 乘以3字节/2簇
+    mul cx                   ; 默认操作数是ax
+    mov di, OffsetOfTempFAT  ; 获取FAT表起始地址
     add di, ax               ; 计算表项偏移地址
     add di, si               ; 计算奇偶偏移地址
-    mov dx, word [ds:di]     ; 读值(2B)
+    mov ax, BaseOfTemp
+    mov es, ax               ; FAT表段基址
+    mov dx, word [es:di]     ; 读FAT表项值(2B)
     shl si, 2                ; 根据奇偶性确定加下来要取高12位还是低12位
     mov cx, si               ; shr的第二个操作数必须是立即数或CL寄存器
-    shr dx, cl               ; 右移4/0, 即取高/低12位
+    shr dx, cl               ; 右移4/0位, 即取高/低12位
     mov si, dx               ; 更新簇号值
     jmp LoadFile             ; 继续加载文件的下一个簇
 
@@ -173,7 +187,9 @@ Retry:
     cmp si, 3               ; 最多尝试3次
     jne Retry               ; 重试
     mov si, 1               ; 否则显示错误信息
-    mov bp, LoadErrorMsg
+    mov bp, ReadSecErrorMsg
+    mov ax, BaseOfBoot
+    mov es, ax
     call Func_ShowMsg
 Return:
     pop si
@@ -224,8 +240,8 @@ HALT:
 Msg:
     Row       db 0
     BootMsg:  db "Hello, MyOS!", 0
-    LoadErrorMsg: db "Load Error!", 0
-    FileName: db "LOADER  BIN", 0
+    ReadSecErrorMsg: db "Read Disk Error!", 0
+    LoaderName: db "LOADER  BIN", 0
     FileNotFoundMsg: db "File Not Found!", 0
     times 510-($-$$) db 0
     db 0x55, 0xaa        ; 魔法数

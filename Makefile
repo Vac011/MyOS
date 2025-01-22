@@ -41,15 +41,16 @@ boot.bin: boot.asm
 loader.bin: loader.asm
 	$(ASM) $< -o $@
 
-# kernel.bin: kernel.asm
-# 	$(ASM) $< -o $@
+kernel.bin: kernel.asm
+	$(ASM) $< -o $@
 
 # create floppy image
-bootloader.img: boot.bin loader.bin
+bootloader.img: boot.bin loader.bin kernel.bin
 	$(DD) if=/dev/zero of=$@ bs=512 count=2880
 	$(DD) if=$< of=$@ conv=notrunc
 	$(MOUNT) $@ /media/ -t vfat -o loop
 	$(CP) loader.bin /media/
+	$(CP) kernel.bin /media/
 	$(SYNC)
 	$(UMOUNT) /media/
 
