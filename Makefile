@@ -34,23 +34,36 @@ CLEAN = rm -f
 # 文件生成规则
 # $<表示第一个依赖文件，$@表示目标文件
 
-# compile bootloader
-boot.bin: boot.asm
+B = bootloader
+K = kernel
+U = user
+
+$B/boot.bin: $B/boot.asm
 	$(ASM) $< -o $@
 
-loader.bin: loader.asm
+$B/loader.bin: $B/loader.asm
 	$(ASM) $< -o $@
 
-kernel.bin: kernel.asm
-	$(ASM) $< -o $@
+$K/kernel.o: $K/kernel.S
+	gcc -E $K/kernel.S > $K/head.s
+	as --64 -o $K/kernel.o $K/head.s
+
+$K/main.o: $K/main.c
+	gcc  -mcmodel=large -fno-builtin -m64 -c $K/main.c -o $K/main.o
+
+$K/kernel: $K/kernel.o $K/main.o
+	ld -b elf64-x86-64 -o $K/kernel $K/kernel.o $K/main.o -T $K/kernel.ld
+
+$K/kernel.bin: $K/kernel
+	objcopy -I elf64-x86-64 -S -R ".eh_frame" -R ".comment" -O binary $K/kernel $K/kernel.bin
 
 # create floppy image
-bootloader.img: boot.bin loader.bin kernel.bin
+$B/bootloader.img: $B/boot.bin $B/loader.bin $K/kernel.bin
 	$(DD) if=/dev/zero of=$@ bs=512 count=2880
 	$(DD) if=$< of=$@ conv=notrunc
 	$(MOUNT) $@ /media/ -t vfat -o loop
-	$(CP) loader.bin /media/
-	$(CP) kernel.bin /media/
+	$(CP) $B/loader.bin /media/
+	$(CP) $K/kernel.bin /media/
 	$(SYNC)
 	$(UMOUNT) /media/
 
@@ -60,20 +73,22 @@ bootloader.img: boot.bin loader.bin kernel.bin
 
 # run in qemu
 # &表示后台运行, \表示换行(多命令时仍属于整体，否则多个命令属于不同执行逻辑), &&表示逻辑与(当前命令执行成功后执行下一个命令), ;表示分隔命令(无论前一个命令是否成功，都执行下一个命令)
-qemu: bootloader.img
+qemu: $B/bootloader.img
 	$(QEMU) -drive file=$<,format=raw &\
 	PID=$$! && sleep 1 && $(VNC) $(ADDR);\
 	kill $$PID
 
 # run in bochs
 # -前缀表示忽略命令的退出状态
-bochs: bootloader.img
+bochs: $B/bootloader.img
 	-$(BOCHS) -q -f bochsrc.bxrc || true
 
 # debug in bochs
-dbg: bootloader.img
+dbg: $B/bootloader.img
 	-$(DBG) -q -f bochsrc.bxrc || true
 
 # clean up files
 clean:
-	$(CLEAN) *.bin *.img
+	$(CLEAN) *.img
+	$(CLEAN) $B/*.bin $B/*.img
+	$(CLEAN) $K/*.bin $K/*.o $K/*.s $K/kernel
