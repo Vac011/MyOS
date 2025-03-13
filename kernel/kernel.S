@@ -29,7 +29,7 @@ _start:
 	movq	$0x7E00,	%rsp
 
 //=======	load	cr3
-
+// cr3寄存器保存顶级页表起始地址
 	movq	$0x101000,	%rax
 	movq	%rax,		%cr3
 	movq	switch_seg(%rip),	%rax
@@ -58,7 +58,7 @@ entry64:
 go_to_kernel:
 	.quad	main
 
-//=======	init page
+//======= 初始化页表
 .align 8
 
 .org	0x1000

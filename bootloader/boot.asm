@@ -54,7 +54,7 @@ Start:
     mov dx, 0x0184f
     int 0x10
 
-    ; 显示字符串
+    ; 利用BIOS中断显示字符串(实际也可以通过直接操控显存地址如0xb0000)
     mov si, 0           ; 信息类型
     mov bp, BootMsg     ; 字符串地址
     mov ax, BaseOfBoot  ; 段地址

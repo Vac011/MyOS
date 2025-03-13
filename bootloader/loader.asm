@@ -80,14 +80,14 @@ Start:
 
     ; 打开A20地址线, 使用20根以上的地址总线, 以便能访问1MB以上的内存
     ; 这里使用快速门启用A20, 还可以使用8042键盘控制器(端口0x64、0x60)或int 0x15中断的功能号0x2401启用
-    in al, 0x92       ; 读取系统控制端口A
+    in al, 0x92       ; 读取系统控制端口
     or al, 0x02       ; 设置A20地址线
-    out 0x92, al      ; 写入系统控制端口A
+    out 0x92, al      ; 写入系统控制端口
 
     ; 关闭中断
     cli               ; 禁止CPU级别的中断
 
-    ; 加载GDB表
+    ; 加载GDT表
     db 0x66           ; 使用0x66前缀强制在16位实模式下使用32位操作数
     lgdt [GDTPtr]     ; GDTR(48位)寄存器需要一个32位的地址, 因此这里需要使用32操作数作为参数传递
 
@@ -160,7 +160,7 @@ FileFound:
     ; 无需再次加载FAT表, 使用之前的即可
     mov edi, OffsetOfKernel  ; cpy函数目的内存偏移起始地址
 LoadFile:
-    ; 根据簇号加载文件
+    ; 根据簇号加载文件到临时内存缓冲区0x7e00处
     and si, 0xfff
     cmp si, 0xff8
     jae Loaded
@@ -202,15 +202,6 @@ LoadFile:
     jmp LoadFile             
 
 Loaded:
-    ; 使用另一种方式显示字符(而不是bios中断)
-    mov ax, BaseOfMonoText
-    mov es, ax           ; 显存段基地址
-    mov bx, OffsetOfMonoText
-    add bx, (80*4+0)*2   ; 显示在第4行第0列
-    mov ah, 0x0f         ; 每个字符由两个字节组成, 高字节为属性, 低字节为要显示的字符
-    mov al, 'C'          ; 显示字符'C'
-    mov [es:bx], ax
-
     ; 关闭软盘马达
     mov dx, 0x3f2        ; out指令的目的操作数可以是立即数或dx, 但立即数取值范围只能是8位(0x00~0xff)
     mov al, 0            ; al对应8位I/O端口
@@ -231,7 +222,7 @@ GetMemStruct:
     add di, 20
     cmp ebx, 0
     jne GetMemStruct
-    jmp GetSVGA
+    jmp SetMonoTextMode
 GetMemStructFail:
     mov si, 1
     mov ax, BaseOfLoader
@@ -239,62 +230,69 @@ GetMemStructFail:
     mov bp, GetMemStructFailMsg
     call Func_ShowMsg
 
-GetSVGA:
-    ; 获取SVGA信息(VBE, VESA BIOS EXTENSION)
-    mov ax, BaseOfTemp
-    mov es, ax      ; 缓冲区基地址
-    mov di, OffsetOfTempFAT ; 缓冲区偏移地址, 作为存放VBEInfoBlock信息块结构的起始地址
-    mov ax, 0x4f00  ; 所有VBE功能统一将ah寄存器赋值为0x4f来区别标准VGA BIOS功能, 并使用al寄存器来指定VBE的功能号, 而bl寄存器则用于指明追加或扩展的子功能。
+; 设置单色文本模式
+SetMonoTextMode:
+    mov ax, 0x03
     int 0x10
-    cmp ax, 0x004f  ; 对于VBE的功能, 如果支持则al返回0x4f表示支持该功能, ah返回0x00表示成功, 否则AH寄存器将记录失败类型
-    jz GetSVGAMode
-GetSVGAFail:
-    mov si, 1
-    mov ax, BaseOfLoader
-    mov es, ax
-    mov bp, GetSVGAInfoFailMsg
-    call Func_ShowMsg
 
-GetSVGAMode:
-    ; 通过VBE信息获取显示模式信息
-    mov ax, BaseOfTemp
-    mov es, ax
-    mov si, OffsetOfTempFAT
-    add si, 0xe            ; vbeInfoBlock结构体中的VideoModePtr字段偏移, 保存着videomodelist的指针
-    mov esi, dword [es:si] ; 获取videomodelist的指针VideoModePtr
-    mov di, OffsetOfTempFAT
-    add di, 0x200          ; ModeInfoBlock结构起始偏移地址
-Get:
-    mov cx, word [es:esi]  ; VideoModePtr指向VidieoModeList(word数组), 每个word是一个当前VBE芯片能够支持的模式号
-    cmp cx, 0xffff         ; 0xffff表示videomodelist结束
-    jz SetSVGAMode         ; 遍历完成, 去设置SVGA模式
-    mov ax, 0x4f01         ; 通过VBE的01h号功能遍历所有VBE模式号, 以获取每个模式号的ModeInfoBlock结构。
-    int 0x10
-    cmp ax, 0x004f         ; al=0x4f表示支持该功能, ah=0x00表示成功
-    jnz GetSVGAModeFail
-    add esi, 2             ; 指针后移, 指向下一个模式号
-    add di, 0x100          ; 每个ModeInfoBlock结构体大小为256字节
-    jmp Get
-GetSVGAModeFail:
-    mov si, 1
-    mov ax, BaseOfLoader
-    mov es, ax
-    mov bp, GetSVGAModeFailMsg
-    call Func_ShowMsg
+; ;设置图形模式
+; GetSVGA:
+;     ; 使用VBE(VESA BIOS EXTENSION)获取SVGA模式信息
+;     mov ax, BaseOfTemp
+;     mov es, ax      ; 缓冲区基地址
+;     mov di, OffsetOfTempFAT ; 缓冲区偏移地址, 作为存放VBEInfoBlock信息块结构的起始地址
+;     mov ax, 0x4f00  ; 所有VBE功能统一将ah寄存器赋值为0x4f来区别标准VGA BIOS功能, 并使用al寄存器来指定VBE的功能号, 而bl寄存器则用于指明追加或扩展的子功能。
+;     int 0x10
+;     cmp ax, 0x004f  ; 对于VBE的功能, 如果支持则al返回0x4f表示支持该功能, ah返回0x00表示成功, 否则AH寄存器将记录失败类型
+;     jz GetSVGAMode
+; GetSVGAFail:
+;     mov si, 1
+;     mov ax, BaseOfLoader
+;     mov es, ax
+;     mov bp, GetSVGAInfoFailMsg
+;     call Func_ShowMsg
 
-SetSVGAMode:
-    ; 根据获取到的显示模式配置SVGA
-    mov ax, 0x4f02
-    mov bx, 0x4180    ; 1440x900, 32bit每像素位宽
-    int 0x10
-    cmp ax, 0x004f
-    jz InitGDT_IDT
-SetSVGAModeFail:
-    mov si, 1
-    mov ax, BaseOfLoader
-    mov es, ax
-    mov bp, SetSVGAModeFailMsg
-    call Func_ShowMsg
+; GetSVGAMode:
+;     ; 解析模式列表
+;     mov ax, BaseOfTemp
+;     mov es, ax
+;     mov si, OffsetOfTempFAT
+;     add si, 0xe            ; vbeInfoBlock结构体中的VideoModePtr字段偏移, 保存着videomodelist的指针
+;     mov esi, dword [es:si] ; 获取videomodelist的指针VideoModePtr
+;     mov di, OffsetOfTempFAT
+;     add di, 0x200          ; ModeInfoBlock结构起始偏移地址
+; Get:
+;     ; 遍历模式列表并获取模式详细信息
+;     mov cx, word [es:esi]  ; VideoModePtr指向VidieoModeList(word数组), 每个word是一个当前VBE芯片能够支持的模式号
+;     cmp cx, 0xffff         ; 0xffff表示videomodelist结束
+;     jz SetSVGAMode         ; 遍历完成, 去设置SVGA模式
+;     mov ax, 0x4f01         ; 通过VBE的01h号功能遍历所有VBE模式号, 以获取每个模式号的ModeInfoBlock结构。
+;     int 0x10
+;     cmp ax, 0x004f         ; al=0x4f表示支持该功能, ah=0x00表示成功
+;     jnz GetSVGAModeFail
+;     add esi, 2             ; 指针后移, 指向下一个模式号
+;     add di, 0x100          ; 每个ModeInfoBlock结构体大小为256字节
+;     jmp Get
+; GetSVGAModeFail:
+;     mov si, 1
+;     mov ax, BaseOfLoader
+;     mov es, ax
+;     mov bp, GetSVGAModeFailMsg
+;     call Func_ShowMsg
+
+; SetSVGAMode:
+;     ; 选择合适的SVGA模式并设置
+;     mov ax, 0x4f02
+;     mov bx, 0x4180    ; 1440x900, 32bit每像素位宽
+;     int 0x10
+;     cmp ax, 0x004f
+;     jz InitGDT_IDT
+; SetSVGAModeFail:
+;     mov si, 1
+;     mov ax, BaseOfLoader
+;     mov es, ax
+;     mov bp, SetSVGAModeFailMsg
+;     call Func_ShowMsg
 
 InitGDT_IDT:
     ; 初始化GDT和IDT

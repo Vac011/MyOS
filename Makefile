@@ -38,6 +38,10 @@ B = bootloader
 K = kernel
 U = user
 
+OBJS = $K/main.o \
+	   $K/printf.o \
+	   $K/console.o
+	
 $B/boot.bin: $B/boot.asm
 	$(ASM) $< -o $@
 
@@ -48,11 +52,12 @@ $K/kernel.o: $K/kernel.S
 	gcc -E $K/kernel.S > $K/head.s
 	as --64 -o $K/kernel.o $K/head.s
 
-$K/main.o: $K/main.c
-	gcc  -mcmodel=large -fno-builtin -m64 -c $K/main.c -o $K/main.o
+# 使用%模式规则依次匹配单个文件而不是*通配符展开一次性匹配所有文件
+$K/%.o: $K/%.c
+	gcc -mcmodel=large -ffreestanding -fno-builtin -fno-stack-protector -m64 -c $< -o $@
 
-$K/kernel: $K/kernel.o $K/main.o
-	ld -b elf64-x86-64 -o $K/kernel $K/kernel.o $K/main.o -T $K/kernel.ld
+$K/kernel: $K/kernel.o $(OBJS)
+	ld -b elf64-x86-64 -o $K/kernel $K/kernel.o $(OBJS) -T $K/kernel.ld
 
 $K/kernel.bin: $K/kernel
 	objcopy -I elf64-x86-64 -S -R ".eh_frame" -R ".comment" -O binary $K/kernel $K/kernel.bin
