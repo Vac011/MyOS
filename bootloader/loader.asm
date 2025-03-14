@@ -27,33 +27,6 @@ BS_DrvNum equ 0               ; 驱动器号
 org 0x10000
     jmp Start
 
-[SECTION gdt]
-GDT:          dd 0, 0                      ; GDT的第一项必须为0
-DESC_CODE32:  dd 0x0000ffff, 0x00cf9a00    ; 段基址为0, 段限长为0xffffffff(0~4GB)的0特权级的非一致性、可读、未访问代码段
-DESC_DATA32:  dd 0x0000ffff, 0x00cf9200    ; 段基址为0, 段限长为0xffffffff(0~4GB)的0特权级的非一致性(数据段必须是非一致性的)、向上扩展、可读写、未访问数据段
-
-GDTLen equ $-GDT
-
-GDTPtr:
-    dw GDTLen - 1
-    dd GDT
-
-SelectorCode32 equ DESC_CODE32 - GDT        ; 代码段选择子索引
-SelectorData32 equ DESC_DATA32 - GDT        ; 数据段选择子索引
-
-[SECTION gdt64] 
-GDT64:          dq    0x0000000000000000   
-DESC_CODE64:    dq    0x0020980000000000    ; 
-DESC_DATA64:    dq    0x0000920000000000    ; 
-
-GdtLen64 equ $-GDT64
-
-GdtPtr64:
-    dw      GdtLen64 - 1 
-    dd      GDT64 
-SelectorCode64 equ DESC_CODE64 - GDT64 
-SelectorData64 equ DESC_DATA64 - GDT64 
-
 [SECTION .16]
 [BITS 16]         ; 实际nasm会将bin文件默认编译为16位模式, 这里可以省略
 Start:
@@ -286,7 +259,7 @@ SetMonoTextMode:
 ;     mov bx, 0x4180    ; 1440x900, 32bit每像素位宽
 ;     int 0x10
 ;     cmp ax, 0x004f
-;     jz InitGDT_IDT
+;     jz ChangeMode
 ; SetSVGAModeFail:
 ;     mov si, 1
 ;     mov ax, BaseOfLoader
@@ -294,18 +267,20 @@ SetMonoTextMode:
 ;     mov bp, SetSVGAModeFailMsg
 ;     call Func_ShowMsg
 
-InitGDT_IDT:
-    ; 初始化GDT和IDT
-    cli                  ; 关闭中断
-    db 0x66              ; 强制使用32位操作数
-    lgdt [GDTPtr]        ; 加载GDT
+ChangeMode:
+    ; 关闭中断
+    cli  
+    ; 加载GDT(强制使用32位操作数)              
     db 0x66
-    lidt [IDTPtr]        ; 加载IDT(因为已经屏蔽了中断, 所以这里也可以选择暂时不加载IDT)
+    lgdt [GDTPtr]
+    ; 加载IDT(因为已经屏蔽了中断, 所以这里也可以选择暂时不加载IDT)        
+    db 0x66
+    lidt [IDTPtr]        
     ; 使能保护模式
     mov eax, cr0
     or eax, 1
     mov cr0, eax
-    ; 这里要使用一个jmp指令来自动设置更新代码段寄存器cs以及流水线
+    ; 这里要使用一个jmp指令来自动设置更新代码段寄存器cs以及处理器的执行流水线
     ; 实际上在jmp完成cs代码段的设置, 其缓冲区段描述符逻辑得到更新, 加载执行保护模式的代码后才是真正进入保护模式
     jmp dword SelectorCode32:ProtectedMode    ; 使用dword前缀也可以强制在16位段中使用32位操作数
     
@@ -320,43 +295,49 @@ ProtectedMode:
     mov ss, ax
     mov esp, 0x7e00      ; 栈从0x7e00向下, 因为此时0x7c00~0x7e00已经不使用了, 而0x7e00~0x8000存放着临时物理内存信息, 0x8000之后存放着VBE信息
 
-    ; 检测处理器是否支持IA-32e模式(long mode)
-    ; ...省略...
+    ; 检测CPU是否支持64位模式
+    mov eax, 0x80000001  ; 获取扩展功能标志
+    cpuid
+    test edx, (1 << 29)  ; 检查返回值 EDX 位 29（Long Mode）
+    jnz Supported
+Not_Supported:
+    ; 如果不支持64位模式, 显示错误信息；由于此时已经在保护模式下, 无法直接调用BIOS中断, 所以这里直接操作显存
+    mov esi, NotSupportedMsg    ; ESI 指向字符串
+    mov edi, 0xB8000            ; VGA 文本模式缓冲区起始地址
+.loop:
+    lodsb                 ; 取下一个字符 (AL = *ESI++)
+    test  al, al          ; 检查是否是 NULL 结束符
+    jz    .done           ; 如果是 NULL，结束
+    mov   ah, 0x4C        ; 设置颜色 (红色)
+    stosw                 ; 写入 VGA 显存 (*EDI++ = AX)
+    jmp   .loop           ; 继续打印
+.done:
+    hlt                   ; 停机
 
-    ; 配置临时页目录项和页表项(放在0x90000处)
-    mov	dword	[0x90000],	0x91007
-	mov	dword	[0x90800],	0x91007		
-
-	mov	dword	[0x91000],	0x92007
-
-	mov	dword	[0x92000],	0x000083
-
-	mov	dword	[0x92008],	0x200083
-
-	mov	dword	[0x92010],	0x400083
-
-	mov	dword	[0x92018],	0x600083
-
-	mov	dword	[0x92020],	0x800083
-
-	mov	dword	[0x92028],	0xa00083
-
+Supported:
     ; 加载64位GDT
     lgdt [GdtPtr64]
-
-    ; 重新加载数据段寄存器
-    mov ax, SelectorData64
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    mov esp, 0x7e00
-
-    ; 使能PAE(Physical Address Extension, 物理地址扩展), 以支持64位寻址
+    
+    ; 使能PAE(Physical Address Extension, 物理地址扩展), 以支持4GB以上的物理内存
     mov eax, cr4
-    or eax, 0x20    ; 设置PAE位(第5位)
+    or eax, 0x20    ; 设置PAE位(bit 5)
     mov cr4, eax
+
+    ; 动态配置临时页目录项和页表项(放在0x90000处)，避免loader.bin文件过大，用于映射0x00000000~0x00A00000(10MB)的物理内存
+    ; 0x90000 处是页目录
+    mov dword [0x90000], 0x91007  ; PDE 指向 0x91000，RW + Present
+    mov dword [0x90800], 0x91007  ; PDE 复制一份，映射相同区域
+
+    ; 0x91000 处是页表
+    mov dword [0x91000], 0x92007  ; 指向 0x92000 的页表
+
+    ; 0x92000 处是页表项
+    mov dword [0x92000], 0x000083  ; 4KB 页: 0x000000 (映射物理地址 0x000000)
+    mov dword [0x92008], 0x200083  ; 4KB 页: 0x002000 (映射物理地址 0x200000)
+    mov dword [0x92010], 0x400083  ; 4KB 页: 0x004000
+    mov dword [0x92018], 0x600083  ; 4KB 页: 0x006000
+    mov dword [0x92020], 0x800083  ; 4KB 页: 0x008000
+    mov dword [0x92028], 0xa00083  ; 4KB 页: 0x00A000
 
     ; 加载cr3寄存器(将页目录(顶层页表)的首地址设置到CR3控制寄存器中), 构造页表结构(此时分页机制必须是关闭状态)
     mov eax, 0x90000
@@ -365,18 +346,18 @@ ProtectedMode:
     ; 使能长模式(通过置位IA32_EFER寄存器(MSR寄存器组内)的LME(Long Mode Enable)标志位激活IA-32e模式)
     mov ecx, 0xc0000080  ; 传入要读取的IA32_EFER寄存器的地址
     rdmsr                ; 读取IA32_EFER寄存器的值, 返回值存放在edx:eax组成的64位寄存器中
-    or eax, 0x100        ; 设置IA32_EFER寄存器的LME标志位
+    or eax, 0x100        ; 设置IA32_EFER寄存器的LME标志位(bit 8)
     wrmsr                ; 写入IA32_EFER寄存器(ecx传递目标寄存器地址, edx:eax传递写入值)
 
-    ; 开启分页机制
+    ; 开启分页机制，真正进入IA-32e模式
     mov eax, cr0      
     bts eax, 31          ; bit test and set, 可以测试(返回给CF)并设置寄存器的某一位(从第0位开始)为1(设置为0使用btr, bit test and reset)
     mov cr0, eax         ; 设置PG位(第31位)为1, 使能分页机制, 此时处理器会自动置位IA32_ERER寄存器的LMA(Long Mode Active, 用以指示处理器当前是否处于IA-32e模式)标志位
 
     ; 至此，处理器完成了进入IA-32e模式前所有的准备工作
-    ; 但是处理器目前正在执行保护模式的程序，这种状态叫作兼容模式(Compatibility Mode), 即运行在IA-32e模式（64位模式）下的32位模式程序
-    ; 若想真正运行在IA-32e模式，还需要一条跨段跳转/调用指令将CS段寄存器的值更新为IA-32e模式的代码段描述符
-    
+    ; 但是处理器目前正在执行保护模式的程序，这种状态叫作兼容模式(Compatibility Mode), 即运行在IA-32e模式（64位模式）下的32位程序
+    ; 若想真正运行在IA-32e模式，还需要使用一条跨段跳转/调用指令将CS段寄存器的值更新为IA-32e模式的代码段描述符
+
     ; 跳转到64位代码段, 正式进入长模式
     jmp SelectorCode64:OffsetOfKernel
 
@@ -483,16 +464,66 @@ CpyLoop:
 
     alignb 16
 
+[SECTION gdt]
+GDT0:                     
+    dq 0         ; GDT的第一项必须为0
+DESC_CODE32:     ; 代码段描述符，定义为0x0000ffff, 0x00cf9a00
+    dw 0xffff    ; 段界限低16位0xffff
+    dw 0x0000    ; 段基址低16位
+    db 0x00      ; 段基址中8位
+    db 10011010b ; 代码段，存在，特权级0，可执行  
+    db 11001111b ; 粒度4KB，32位模式，段界限高4位0xf，共计限长0xFFFFF * 4KB = 0xFFFFFFFF = 4GB
+    db 0x00      ; 段基址高8位          
+DESC_DATA32:     ; 数据段描述符，定义为0x0000ffff, 0x00cf9200   
+    dw 0xffff    ; 段界限低16位0xffff  
+    dw 0x0000    ; 段基址低16位 
+    db 0x00      ; 段基址中8位  
+    db 10010010b ; 数据段，存在，特权级 0，不可执行  
+    db 11001111b ; 粒度4KB，32位模式，段界限高4位0xf，共计限长0xFFFFF * 4KB = 0xFFFFFFFF = 4GB  
+    db 0x00      ; 段基址高8位
+GDTEnd:
+GDTPtr:
+    dw GDTEnd - GDT0 - 1 ; GDT长度
+    dd GDT0              ; GDT基址
 
+SelectorCode32 equ DESC_CODE32 - GDT0        ; 代码段选择子索引
+SelectorData32 equ DESC_DATA32 - GDT0        ; 数据段选择子索引
 
+[SECTION gdt64]
+GDT64:
+    dq 0         ; GDT的第一项必须为0
+DESC_CODE64:     ; 64位代码段描述符
+    dw 0x0000    ; 段界限低16位，IA-32e模式简化了保护模式的段结构，删掉了冗余的段基地址和段限长，使段直接覆盖整个线性地址空间
+    dw 0x0000    ; 段基址低16位
+    db 0x00      ; 段基址中8位
+    db 10011000b ; 代码段，存在，特权级0，可执行
+    db 00100000b ; 粒度1B，64位模式
+    db 0x00      ; 段基址高8位
+DESC_DATA64:     ; 64位数据段描述符
+    dw 0x0000    ; 段界限低16位
+    dw 0x0000    ; 段基址低16位
+    db 0x00      ; 段基址中8位
+    db 10010010b ; 数据段，存在，特权级0，不可执行
+    db 00000000b ; 粒度1B
+    db 0x00      ; 段基址高8位
+GDT64End:
+GdtPtr64:
+    dw GDT64End - GDT64 - 1 ; GDT长度
+    dd GDT64                ; GDT基址
+
+SelectorCode64 equ DESC_CODE64 - GDT64        ; 代码段选择子索引
+SelectorData64 equ DESC_DATA64 - GDT64        ; 数据段选择子索引
+
+; 临时空IDT
+[SECTION idt]
 IDT:
-	times	0x50	dq	0
+	times	0x50	dq	0           ; 256个8字节空描述符
 IDT_END:
-
 IDTPtr:
 	dw	IDT_END - IDT - 1
 	dd	IDT
 
+[SECTION .data]
 Msg:
     Row db 0
     LoaderMsg: db "Loading...", 0
@@ -503,7 +534,4 @@ Msg:
     GetSVGAInfoFailMsg: db "Get SVGA Information Failed!", 0
     GetSVGAModeFailMsg: db "Get SVGA Mode Failed!", 0
     SetSVGAModeFailMsg: db "Set SVGA Mode Failed!", 0
-
-
-
-
+    NotSupportedMsg: db "64-bit mode not supported!", 0
