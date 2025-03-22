@@ -1,3 +1,5 @@
+# bootloader loads the kernel at 0x100000 and causes CPU to jump there
+
 .section .text
 
 .globl _start
@@ -11,13 +13,13 @@ _start:
 	mov	%ax,	%ss
 	mov	$0x7E00,	%esp
 
-//=======	load GDTR
+//=======	load GDT64R
 
-	lgdt	GDT_POINTER(%rip)
+	lgdt	GDT64_POINTER(%rip)
 
-//=======	load	IDTR
+//=======	load	IDT64R
 
-	lidt	IDT_POINTER(%rip)
+	lidt	IDT64_POINTER(%rip)
 
 	mov	$0x10,	%ax
 	mov	%ax,	%ds
@@ -96,13 +98,11 @@ __PDE:
 	.quad	0xe0e00083
 	.fill	499,8,0
 
-//=======	GDT_Table
-
 .section .data
 
-.globl GDT_Table
-
-GDT_Table:
+//=======	GDT64_Table
+.globl GDT64_Table
+GDT64_Table:
 	.quad	0x0000000000000000			/*0	NULL descriptor		       	00*/
 	.quad	0x0020980000000000			/*1	KERNEL	Code	64-bit	Segment	08*/
 	.quad	0x0000920000000000			/*2	KERNEL	Data	64-bit	Segment	10*/
@@ -111,32 +111,24 @@ GDT_Table:
 	.quad	0x00cf9a000000ffff			/*5	KERNEL	Code	32-bit	Segment	28*/
 	.quad	0x00cf92000000ffff			/*6	KERNEL	Data	32-bit	Segment	30*/
 	.fill	10,8,0					/*8 ~ 9	TSS (jmp one segment <7>) in long-mode 128-bit 40*/
-GDT_END:
+GDT64_END:
 
-GDT_POINTER:
-GDT_LIMIT:	.word	GDT_END - GDT_Table - 1
-GDT_BASE:	.quad	GDT_Table
+GDT64_POINTER:
+GDT6464_LIMIT:	.word	GDT64_END - GDT64_Table - 1
+GDT64_BASE:	.quad	GDT64_Table
 
-//=======	IDT_Table
-
-.globl IDT_Table
-
-IDT_Table:
+//=======	IDT64_Table
+.globl IDT64_Table
+IDT64_Table:
 	.fill  512,8,0
-IDT_END:
+IDT64_END:
 
-IDT_POINTER:
-IDT_LIMIT:	.word	IDT_END - IDT_Table - 1
-IDT_BASE:	.quad	IDT_Table
+IDT64_POINTER:
+IDT64_LIMIT:	.word	IDT64_END - IDT64_Table - 1
+IDT64_BASE:	.quad	IDT64_Table
 
 //=======	TSS64_Table
-
 .globl	TSS64_Table
-
 TSS64_Table:
 	.fill  13,8,0
 TSS64_END:
-
-TSS64_POINTER:
-TSS64_LIMIT:	.word	TSS64_END - TSS64_Table - 1
-TSS64_BASE:	.quad	TSS64_Table
