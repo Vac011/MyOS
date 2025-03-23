@@ -13,12 +13,7 @@ _start:
 	mov	%ax,	%ss
 	mov	$0x7E00,	%esp
 
-//=======	load GDT64R
-
 	lgdt	GDT64_POINTER(%rip)
-
-//=======	load	IDT64R
-
 	lidt	IDT64_POINTER(%rip)
 
 	mov	$0x10,	%ax
@@ -27,7 +22,6 @@ _start:
 	mov	%ax,	%fs
 	mov	%ax,	%gs
 	mov	%ax,	%ss
-
 	movq	$0x7E00,	%rsp
 
 //=======	load	cr3
@@ -61,29 +55,45 @@ go_to_kernel:
 	.quad	main
 
 //======= 初始化页表
-.align 8
+
+// 64位虚拟地址结构(只使用其中的48位, 高16位为保留位, 必须与第47位相同(全0或全1))
+// |  63-48  |  47-39  |  38-30  |  29-21 |  20-12  |  11-0  |
+// |   16位  |   9位   |   9位    |   9位  |   9位   |  12位  |
+// | Reserve |  PML4E  |  PDPTE  |   PDE  |   PTE   | Offset |
+
+// 64位页表项结构(高12位为保留位, 低12位为属性位, 其余为下一级页表或页面基址(物理地址, 需要左移12位))
+// |  63-52  |  51-12  |  11-0  |
+// |   12位  |   40位  |  12位   |
+// | Reserve |   Base  |  Flag  |
+
+// 12位页表属性位
+// |  11-9   |    8    |     7    |   6   |    5    |  4  |  3  |      2     |      1     |    0    |
+// | Reserve |  Global | PageSize | Dirty | Accessd | PCD | PWT | User/Super | Read/Write | Present |
+// Bit 8 (G, Global)：标记页是否为全局页(在TLB中不被刷新)。1: 全局页(如内核代码)。0: 非全局页。
+// Bit 7 (PS, PageSize): 标记页的大小。1: 2MB页(在PDE中为2MB, 在PDPTE中为1GB页)。0: 4KB页(在PTE中为4KB页)。
+// Bit 6 (D, Dirty): 标记页是否被写入过。1: 被写入过, 需写回磁盘(若被换出)。0: 未被修改。
+// Bit 5 (A, Accessed): 标记页是否被访问过。1: 被访问过。0: 未被访问过。
+// Bit 4 (PCD, Page-level Cache Disable): 页级缓存禁用。1: 禁用页级缓存。0: 启用页级缓存。
+// Bit 3 (PWT, Page-level Write-Through): 页级写穿透。1: 写穿透(write-through, 同时写入缓存和内存)。0: 写回(write-back, 先写入缓存, 再异步写入内存)。
+// Bit 2 (U/S, User/Supervisor): 用户/超级用户位。1: 用户态可访问。0: 仅内核态可访问。
+// Bit 1 (R/W, Read/Write): 读/写位。1: 可读写。0: 只读。
+// Bit 0 (P, Present): 页存在位。1: 页存在于内存。0: 页不存在。
 
 .org	0x1000
-
 __PML4E:
-
-	.quad	0x102007
+	.quad	0x102007	/* 低地址映射(0x0000000000000000), 指向PDPTE(0x102000) */
 	.fill	255,8,0
-	.quad	0x102007
+	.quad	0x102007	/* 高地址映射(0xffff800000000000) */
 	.fill	255,8,0
 
 .org	0x2000
-
 __PDPTE:
-	
-	.quad	0x103003
+	.quad	0x103003	/* 指向PDE(0x103000) */
 	.fill	511,8,0
 
 .org	0x3000
-
 __PDE:
-
-	.quad	0x000083	
+	.quad	0x000083	/* PS(Paging Size)为1, 2MB页, 直接指向页面物理地址(0x000000), 不再有下一级页表PT */
 	.quad	0x200083
 	.quad	0x400083
 	.quad	0x600083

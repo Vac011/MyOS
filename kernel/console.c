@@ -1,4 +1,4 @@
-#define VIDEO_MEMORY 0xB8000
+#define VIDEO_MEMORY 0xffff8000000B8000
 #define SCREEN_WIDTH 80
 #define SCREEN_HEIGHT 25
 
@@ -9,6 +9,8 @@ void putchar(char c) {
 
     if (c == '\n') {
         pos += SCREEN_WIDTH - (pos % SCREEN_WIDTH); // 换行
+    } else if (c == '\t') {
+        pos += 8 - (pos % 8); // 制表符
     } else {
         vidmem[pos] = (0x07 << 8) | c; // 0x07 = 灰色前景，黑色背景
         pos++;

@@ -1,35 +1,38 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include "defs.h"
+#include "printf.h"
 
 // 限制itoa函数作用域仅限于当前文件
-static void itoa(int value, char *buffer, int base) {
+static void itoa(long value, char *buffer, int base) {
     char digits[] = "0123456789ABCDEF";
     char temp[32]; // 临时存储转换后的字符串
     int i = 0, j = 0;
-    int is_negative = (value < 0 && base == 10); // 只有10进制才显示负号
-
+    // 只有10进制才进行负数转换
+    int is_negative = (value < 0 && base == 10); 
     if (is_negative) value = -value;
-
+    // 无符号除法
     do {
-        temp[i++] = digits[value % base];
-        value /= base;
+        temp[i++] = digits[udiv(value, base)];
     } while (value);
-
+    // 添加负号
     if (is_negative) temp[i++] = '-';
-
     while (i > 0) buffer[j++] = temp[--i];
     buffer[j] = '\0';
 }
 
 int vsnprintf(char *buffer, size_t size, const char *fmt, va_list args) {
     size_t i = 0, j = 0;
-
+    int is_long = 0;
     while (fmt[i] && j < size - 1) {
         if (fmt[i] == '%' && fmt[i + 1]) {
             i++; // 跳过 '%'
             char temp[32];
-
+            is_long = 0;
+            if (fmt[i] == 'l') {
+                is_long = 1;
+                i++;
+            }
             switch (fmt[i]) {
                 case 'c': {
                     char c = (char) va_arg(args, int);
@@ -42,14 +45,20 @@ int vsnprintf(char *buffer, size_t size, const char *fmt, va_list args) {
                     break;
                 }
                 case 'd': {
-                    int num = va_arg(args, int);
-                    itoa(num, temp, 10);
+                    if (is_long) {
+                        itoa(va_arg(args, long), temp, 10);
+                    } else {
+                        itoa(va_arg(args, int), temp, 10);
+                    }
                     for (char *p = temp; *p && j < size - 1; p++) buffer[j++] = *p;
                     break;
                 }
                 case 'x': {
-                    int num = va_arg(args, int);
-                    itoa(num, temp, 16);
+                    if (is_long) {
+                        itoa(va_arg(args, long), temp, 16);
+                    } else {
+                        itoa(va_arg(args, int), temp, 16);
+                    }
                     for (char *p = temp; *p && j < size - 1; p++) buffer[j++] = *p;
                     break;
                 }
@@ -78,4 +87,12 @@ void printf(const char *fmt, ...) {
     for (char *p = buffer; *p; p++) {
         putchar(*p);
     }
+}
+
+void panic(char *s) {
+  printf("panic: ");
+  printf(s);
+  printf("\n");
+  for(;;)
+    ;
 }

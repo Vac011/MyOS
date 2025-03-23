@@ -41,15 +41,17 @@ U = user
 OBJS = $K/main.o \
 	   $K/printf.o \
 	   $K/console.o \
-	   $K/trap.o
+	   $K/trap.o \
+	   $K/memory.o \
+	   $K/slub.o \
+	   $K/string.o
 	
 $B/%.bin: $B/%.asm
 	$(ASM) $< -o $@
 
 # .S 代表 需要预处理（区别于 .s）
 $K/entry.o: $K/entry.S
-	gcc -E $< > $K/head.s
-	as --64 -o $@ $K/head.s
+	gcc -m64 -c $< -o $@
 
 $K/trapentry.o: $K/trapentry.S
 	gcc -m64 -c $< -o $@

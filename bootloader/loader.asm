@@ -193,7 +193,7 @@ GetMemStruct:
     int 0x15
     jc GetMemStructFail
     add di, 20
-    cmp ebx, 0
+    cmp ebx, 0          ; EBX 为下一个条目的索引，如果 EBX 为 0，则表示这是最后一个条目
     jne GetMemStruct
     jmp SetMonoTextMode
 GetMemStructFail:
