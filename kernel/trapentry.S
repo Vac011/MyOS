@@ -2,22 +2,24 @@
 必须先借助汇编语句在异常处理程序的入口处保存程序的现场环境，然后再执行C语言的异常处理函
 数。*/
 
-R15	=	0x00
-R14	=	0x08
-R13	=	0x10
-R12	=	0x18
-R11	=	0x20
-R10	=	0x28
-R9	=	0x30
-R8	=	0x38
-RBX	=	0x40
-RCX	=	0x48
-RDX	=	0x50
+/* 函数参数传递顺序：rdi, rsi, rdx, rcx, r8, r9, stack */
+
+ES	=	0x00
+DS	=	0x08
+R15	=	0x10
+R14	=	0x18
+R13	=	0x20
+R12	=	0x28
+R11	=	0x30
+R10	=	0x38
+R9	=	0x40
+R8	=	0x48
+RDI	=	0x50
 RSI	=	0x58
-RDI	=	0x60
-RBP	=	0x68
-DS	=	0x70
-ES	=	0x78
+RBP	=	0x60
+RBX	=	0x68
+RDX	=	0x70
+RCX	=	0x78
 RAX	=	0x80
 FUNC	=	0x88
 ERRCODE	=	0x90
@@ -28,18 +30,14 @@ OLDRSP	=	0xb0
 OLDSS	=	0xb8
 
 enter_exception:
+	/* 保存现场 */
 	pushq	%rax
-	movq	%es,	%rax
-	pushq	%rax
-	movq	%ds,	%rax
-	pushq	%rax
-
-	pushq	%rbp
-	pushq	%rdi
-	pushq	%rsi
-	pushq	%rdx
 	pushq	%rcx
+	pushq	%rdx
 	pushq	%rbx
+	pushq	%rbp
+	pushq	%rsi
+	pushq	%rdi
 	pushq	%r8
 	pushq	%r9
 	pushq	%r10
@@ -48,56 +46,60 @@ enter_exception:
 	pushq	%r13
 	pushq	%r14
 	pushq	%r15
+	movq	%ds,	%rax
+	pushq	%rax
+	movq	%es,	%rax
+	pushq	%rax
 
 	xorq	%rax,	%rax	
-	
-	cld
-	movq	ERRCODE(%rsp),	%rsi
-	movq	FUNC(%rsp),	%rdx	
+	cld								/* Clear Direction Flag, 清方向标志位 */
+	movq	ERRCODE(%rsp),	%rsi	/* 加载错误码error code到第二个参数 */
+	movq	FUNC(%rsp),	%rdx		/* 加载异常处理函数地址到rdx寄存器(不算第三个参数) */
 
 	movq	$0x10,	%rdi
 	movq	%rdi,	%ds
 	movq	%rdi,	%es
 
-	movq	%rsp,	%rdi
+	movq	%rsp,	%rdi			/* 加载栈指针rsp到第一个参数 */
 	////GET_CURRENT(%ebx)
 
-	callq 	*%rdx
+	callq 	*%rdx					/* 调用异常处理函数 */
 
-	jmp	ret_from_exception
+	jmp	ret_from_exception			/* 返回 */
 
 ret_from_exception:
 	/*GET_CURRENT(%ebx)	need rewrite*/
     /*need rewrite*/
-	popq	%r15;		
-	popq	%r14;		
-	popq	%r13;		
-	popq	%r12;		
-	popq	%r11;		
-	popq	%r10;		
-	popq	%r9;		
-	popq	%r8;		
-	popq	%rbx;		
-	popq	%rcx;		
-	popq	%rdx;		
-	popq	%rsi;		
-	popq	%rdi;		
-	popq	%rbp;		
-	popq	%rax;		
-	movq	%rax,	%ds;	
-	popq	%rax;		
-	movq	%rax,	%es;	
-	popq	%rax;		
-	addq	$0x10,	%rsp;	
-	iretq;
+	popq	%rax
+	movq	%rax,	%es
+	popq	%rax	
+	movq	%rax,	%ds	
+	popq	%r15	
+	popq	%r14	
+	popq	%r13	
+	popq	%r12	
+	popq	%r11	
+	popq	%r10	
+	popq	%r9	
+	popq	%r8
+	popq	%rdi	
+	popq	%rsi
+	popq	%rbp	
+	popq	%rbx	
+	popq	%rdx	
+	popq	%rcx	
+	popq    %rax
+				
+	addq	$0x10,	%rsp		/* 将函数地址和错误码出栈 */
+	iretq
 
-
+/* 各异常入口函数 */
 .global divide_error
 divide_error:
-	pushq	$0
+	pushq	$0									/* 压入错误码 */
 	pushq	%rax
 	leaq	do_divide_error(%rip),	%rax
-	xchgq	%rax,	(%rsp)
+	xchgq	%rax,	(%rsp)						/* 压入异常处理函数地址, 并将rax还原 */
 	jmp	enter_exception
 
 .global debug

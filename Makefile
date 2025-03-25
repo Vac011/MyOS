@@ -42,6 +42,7 @@ OBJS = $K/main.o \
 	   $K/printf.o \
 	   $K/console.o \
 	   $K/trap.o \
+	   $K/intr.o \
 	   $K/memory.o \
 	   $K/slub.o \
 	   $K/string.o
@@ -56,12 +57,16 @@ $K/entry.o: $K/entry.S
 $K/trapentry.o: $K/trapentry.S
 	gcc -m64 -c $< -o $@
 
+$K/intrentry.o: $K/intrentry.S
+	gcc -m64 -c $< -o $@
+
 # 使用%模式规则依次匹配单个文件而不是*通配符展开一次性匹配所有文件，但普通规则的优先级高于一般规则
 $K/%.o: $K/%.c
 	gcc -mcmodel=large -ffreestanding -fno-builtin -fno-stack-protector -m64 -c $< -o $@
 
-$K/kernel: $K/entry.o $K/trapentry.o $(OBJS)
-	ld -b elf64-x86-64 -o $K/kernel $K/entry.o $K/trapentry.o $(OBJS) -T $K/kernel.ld
+$K/kernel: $K/entry.o $K/trapentry.o $K/intrentry.o $(OBJS)
+	ld -b elf64-x86-64 -o $K/kernel $K/entry.o $K/trapentry.o $K/intrentry.o $(OBJS) -T $K/kernel.ld
+	objdump -D $K/kernel > $K/kernel.asm
 
 $K/kernel.bin: $K/kernel
 	objcopy -I elf64-x86-64 -S -R ".eh_frame" -R ".comment" -O binary $K/kernel $K/kernel.bin

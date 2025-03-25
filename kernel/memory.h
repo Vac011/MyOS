@@ -37,7 +37,12 @@ struct page {
 // slab cache结构
 // extern struct kmem_cache *cache_chain;
 
-#define flush_tlb()	({					\
+
+// 在宏定义中，所有涉及参数的表达式都应该用小括号括起来
+// 如果宏定义是一个复杂的表达式，应该用小括号将整个表达式括起来
+// 如果宏中包含多条语句，需要用大括号或者do {...} while (0)结构将它们包裹起来，避免控制流错误
+// 而({ ... })语法是GCC的扩展，用于在代码块中返回值
+#define flush_tlb()	do {               \
 	uint64 tmpreg;				      	\
 	__asm__ __volatile__ 	(				\
 				"movq	%%cr3,	%0	\n\t"	\
@@ -46,7 +51,7 @@ struct page {
 				:				                \
 				:"memory"			          \
 				);				              \
-})
+} while (0)
 
 // 获取当前页表基址
 #define get_cr3() ({              \

@@ -120,7 +120,7 @@ GDT64_Table:
 	.quad	0x0000f20000000000			/*4	USER	Data	64-bit	Segment	20*/
 	.quad	0x00cf9a000000ffff			/*5	KERNEL	Code	32-bit	Segment	28*/
 	.quad	0x00cf92000000ffff			/*6	KERNEL	Data	32-bit	Segment	30*/
-	.fill	10,8,0					/*8 ~ 9	TSS (jmp one segment <7>) in long-mode 128-bit 40*/
+	.fill	10,8,0						/*8 ~ 9	TSS (jmp one segment <7>) 128-bit need two entry*/
 GDT64_END:
 
 GDT64_POINTER:

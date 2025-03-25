@@ -108,3 +108,7 @@ void alignment_check();
 void machine_check();
 void SIMD_exception();
 void virtualization_exception();
+
+extern struct segdesc64 GDT64_Table[];
+extern struct taskstate64 TSS64_Table;
+extern struct gatedesc IDT64_Table[];

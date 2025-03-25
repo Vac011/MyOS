@@ -6,6 +6,7 @@
 int main() {
 	tssinit(0xffff800000007c00, 8);
 	trapinit();
+	intrinit();
 	memoryinit();
 	while (1);
 }

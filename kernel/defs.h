@@ -14,6 +14,9 @@ void panic(char *s);
 void tssinit(uint64 sp, uint16 GDT_TSS);
 void trapinit();
 
+// intr.c
+void intrinit();
+
 // memory.c
 void memoryinit();
 void freerange(void *start, void *end);
