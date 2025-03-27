@@ -20,6 +20,7 @@ SECTIONS
 		
 		_edata = .;
 	}
+
 	.bss :
 	{
 		_bss = .;

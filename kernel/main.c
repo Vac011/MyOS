@@ -8,5 +8,7 @@ int main() {
 	trapinit();
 	intrinit();
 	memoryinit();
+	taskinit();
+	// schedule();
 	while (1);
 }

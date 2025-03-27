@@ -19,7 +19,7 @@ save_all:
 	pushq	%rcx
 	movq	%es,	%rcx
 	pushq	%rcx
-    jmp     %rax			/* 这里不能直接用ret, 因为ret会弹出栈顶的返回地址，而这里的栈已经被我们修改 */
+    jmp     *%rax			/* 这里不能直接用ret, 因为ret会弹出栈顶的返回地址，而这里的栈已经被我们修改 */
 
 ret_from_intr:
 	popq	%rax
@@ -53,7 +53,7 @@ irq0x20:
     leaq do_irq0x20(%rip), %rdx
     leaq ret_from_intr(%rip), %rcx
     pushq %rcx                      /* 将返回地址压栈(直接返回到ret_from_intr) */
-    jmp %rdx                        /* 使用jmp而不是call可以省略返回到当前函数, 直接跳转到ret_from_intr */
+    jmp *%rdx                        /* 使用jmp而不是call可以省略返回到当前函数, 直接跳转到ret_from_intr */
 
 .global irq0x21
 irq0x21:
@@ -64,7 +64,7 @@ irq0x21:
     leaq do_irq0x21(%rip), %rdx
     leaq ret_from_intr(%rip), %rcx
     pushq %rcx
-    jmp %rdx
+    jmp *%rdx
 
 .global irq0x2c
 irq0x2c:
@@ -75,4 +75,4 @@ irq0x2c:
     leaq do_irq0x2c(%rip), %rdx
     leaq ret_from_intr(%rip), %rcx
     pushq %rcx
-    jmp %rdx
+    jmp *%rdx

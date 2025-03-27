@@ -10,6 +10,10 @@ void putchar(char c);
 void printf(const char *fmt, ...);
 void panic(char *s);
 
+// task.c
+void taskinit();
+void schedule();
+
 // trap.c
 void tssinit(uint64 sp, uint16 GDT_TSS);
 void trapinit();

@@ -41,6 +41,7 @@ U = user
 OBJS = $K/main.o \
 	   $K/printf.o \
 	   $K/console.o \
+	   $K/task.o \
 	   $K/trap.o \
 	   $K/intr.o \
 	   $K/memory.o \
